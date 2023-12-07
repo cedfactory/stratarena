@@ -7,6 +7,23 @@ import pandas as pd
 from datetime import datetime, timedelta
 import vectorbt as vbt
 
+
+def section_1(price):
+    print(price)
+    print(type(price))
+    rsi = vbt.RSI.run(price, window=[14])
+    print(rsi.rsi)
+    entries = rsi.rsi_crossed_below(30)
+    # print(entries.to_string())
+    exits = rsi.rsi_crossed_above(70)
+    # print(exits.to_string())
+    pf = vbt.Portfolio.from_signals(price, entries, exits, init_cash=10000)
+    pf.plot().show()
+    # print(pf.total_return())
+    # print(pf.total_profit())
+    # print(pf.stats())
+
+
 def custom_indicator(close, rsi_window=14, ma_window=50, entry=30, exit=70):
     close_5m = close.resample("5T").last()
     # rsi = vbt.RSI.run(close, window=rsi_window).rsi.to_numpy()
@@ -15,6 +32,8 @@ def custom_indicator(close, rsi_window=14, ma_window=50, entry=30, exit=70):
                        broadcast_axis=0,
                        method='ffill',
                        join='right')
+    #rsi = rsi.ffill() ?
+
     close = close.to_numpy()
     rsi = rsi.to_numpy()
     ma = vbt.MA.run(close, window=ma_window).ma.to_numpy()
@@ -24,61 +43,78 @@ def custom_indicator(close, rsi_window=14, ma_window=50, entry=30, exit=70):
 
     return trend
 
-if __name__ == '__main__':
-    """
-    data = vbt.BinanceData.fetch(
-        ["BTCUSDT"],
-        start="2019-01-01 UTC",
-        end="2023-02-02 UTC",
-        timeframe="1m"
+def section_2(prices):
+    ind = vbt.IndicatorFactory(
+        class_name="Combination",
+        short_name='comb',
+        input_names=['close'],
+        param_names=['rsi_window', "ma_window", "entry", "exit"],
+        output_names=['value']
+    ).from_apply_func(
+        custom_indicator,
+        rsi_window=14,
+        ma_window=100,
+        entry=30,
+        exit=70,
+        keep_pd=True
     )
-    """
+    res = ind.run(prices,
+                  # rsi_window=[14, 35, 21],
+                  rsi_window=np.arange(10, 40, step=3, dtype=int),
+                  # ma_window=[21, 50, 100],
+                  # ma_window=np.arange(20, 200, step=20, dtype=int),
+                  # entry=[30, 40],
+                  entry=np.arange(10, 40, step=4, dtype=int),
+                  # exit=[60, 70],
+                  exit=np.arange(60, 90, step=4, dtype=int),
+                  param_product=True
+                  )
 
+    # print(res.value.to_string())
+    # print(res.value)
+
+    entries = res.value == 1
+    exits = res.value == -1
+
+    pf = vbt.Portfolio.from_signals(prices, entries, exits, init_cash=10000)
+
+    # print(pf.stats())
+    print(pf.total_return().to_string())
+    print(pf.total_profit().to_string())
+
+    returns = pf.total_return()
+    profits = pf.total_profit()
+    print(returns.max())
+    print(returns.idxmax())
+    print(profits.max())
+    print(profits.idxmax())
+
+    returns = pf.total_return()
+    profits = pf.total_profit()
+
+
+def get_prices(lst_pairs):
     # Prepare data
-    end = datetime.utcnow().strftime("%Y-%m-%d %Z %H:%M")
+    interval = "1m" # \in { "1h", "1m" }
+    #end = datetime.utcnow().strftime("%Y-%m-%d %Z %H:%M")
     end_date = datetime.now()
-    # start = '2023-01-01 UTC'  # crypto is in UTC
-    start = '2023-01-01 00:00'  # crypto is in UTC
-    start_date_1m = end_date - timedelta(days=3) # For interval 1m
-    start_date_1h = '2023-01-01 00:00'  # crypto is in UTC
-
-    # btc_price = vbt.YFData.download('BTC-USD', start=start, end=end, missing_index='drop').get('Close')
-    # eth_price = vbt.YFData.download('ETH-USD', start=start, end=end, missing_index='drop').get('Close')
-
-    # interval = "1h"
-    interval = "1m"
-    lst_pairs = ['BTC-USD', 'ETH-USD', 'XRP-USD', 'ADA-USD']
-    # lst_pairs = ['BTC-USD']
-    lst_pairs = ['BTC-USD', 'ETH-USD']
-    if interval == "1m":
-        btc_price = vbt.YFData.download(lst_pairs,
-                                        interval="1m",
-                                        start=start_date_1m,
-                                        end=end_date,
-                                        missing_index='drop').get('Close')
-        print(btc_price)
+    if interval == "1h":
+        start_date = end_date - timedelta(days=15)
     else:
-        # btc_price = vbt.YFData.download(['BTC-USD', 'ETH-USD', 'XRP-USD', 'ADA-USD'],
-        btc_price = vbt.YFData.download(lst_pairs,
-                                        interval="1h",
-                                        start=start_date_1h,
-                                        end=end_date,
-                                        missing_index='drop').get('Close')
-    section = "section_1"
-    #section = "section_2"
+        start_date = end_date - timedelta(days=7) #"2023-01-01 00:00"
 
-    if section == "section_1":
-        print(btc_price)
-        print(type(btc_price))
-        rsi = vbt.RSI.run(btc_price, window=[14])
-        print(rsi.rsi)
-        entries = rsi.rsi_crossed_below(30)
-        # print(entries.to_string())
-        exits = rsi.rsi_crossed_above(70)
-        # print(exits.to_string())
-        pf = vbt.Portfolio.from_signals(btc_price, entries, exits, init_cash=10000)
-        pf.plot().show()
-        # print(pf.total_return())
-        # print(pf.total_profit())
-        # print(pf.stats())
+    prices = vbt.YFData.download(lst_pairs, interval=interval, start=start_date, end=end_date, missing_index='drop').get('Close')
+    #print(prices)
+    return prices
 
+
+if __name__ == '__main__':
+
+    print("section_1")
+    prices = get_prices(['BTC-USD'])
+    section_1(prices)
+
+    print("section_2")
+    lst_pairs = ['BTC-USD', 'ETH-USD'] # ['BTC-USD', 'ETH-USD', 'XRP-USD', 'ADA-USD']
+    prices = get_prices(lst_pairs)
+    section_2(prices)
